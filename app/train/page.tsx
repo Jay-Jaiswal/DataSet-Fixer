@@ -97,8 +97,8 @@ export default function TrainPage() {
       formData.append('feature_columns', JSON.stringify(columns.filter(col => col !== config.targetColumn)))
       formData.append('task_type', config.taskType || 'classification')
       formData.append('model_type', config.algorithm)
-      formData.append('test_size', config.testSize / 100)
-      formData.append('random_state', config.randomState)
+      formData.append('test_size', String(config.testSize / 100))
+      formData.append('random_state', String(config.randomState))
       formData.append('model_params', JSON.stringify({}))
 
       const response = await fetch('http://localhost:8000/api/train-model/', {

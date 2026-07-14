@@ -4,7 +4,7 @@ import { useCallback, useState, useEffect } from "react"
 import { Upload, FileText, CheckCircle2 } from "lucide-react"
 
 interface FileUploaderProps {
-    onFileSelect: (file: File | null) => void
+    onFileSelect: (file: File) => void
     initialFile?: File | null
 }
 

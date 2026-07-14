@@ -1196,19 +1196,22 @@ async def get_model_info(filename: str):
 @app.post("/api/test-model/")
 async def test_model(
     file: UploadFile = File(...),
-    model_filename: str = Form(...),
+    model_file: UploadFile = File(...),
     target_column: Optional[str] = Form(None)
 ):
     """
-    Test a downloaded model on a new dataset and return predictions plus optional evaluation metrics.
+    Test an uploaded model on a new dataset and return predictions plus optional evaluation metrics.
     """
     try:
-        model_path = os.path.join('models', model_filename)
+        model_filename = model_file.filename or "uploaded-model.pkl"
+        if not model_filename.lower().endswith(('.pkl', '.joblib')):
+            raise HTTPException(status_code=400, detail="Please upload a .pkl or .joblib model file")
 
-        if not os.path.exists(model_path):
-            raise HTTPException(status_code=404, detail="Model file not found")
+        model_content = await model_file.read()
+        if not model_content:
+            raise HTTPException(status_code=400, detail="The uploaded model file is empty")
 
-        model_package = joblib.load(model_path)
+        model_package = joblib.load(io.BytesIO(model_content))
         pipeline = model_package.get('pipeline')
         feature_columns = model_package.get('feature_columns', [])
         task_type = model_package.get('task_type', 'classification')

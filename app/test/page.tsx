@@ -1,29 +1,11 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, Download, FileCheck, PlayCircle, AlertCircle, Brain, Database, FileText } from "lucide-react"
+import { ArrowLeft, FileCheck, PlayCircle, AlertCircle, Brain, Database, FileText } from "lucide-react"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-
-interface TrainedModel {
-  id: string
-  filename: string
-  file_url: string
-  model_type: string
-  task_type: string
-  target_column: string
-  accuracy?: number
-  precision?: number
-  recall?: number
-  f1_score?: number
-  r2_score?: number
-  mae?: number
-  mse?: number
-  rmse?: number
-  created_at: string
-}
 
 interface TestResult {
   success: boolean
@@ -51,55 +33,14 @@ function formatMetricLabel(key: string) {
 }
 
 export default function TestModelPage() {
-  const [models, setModels] = useState<TrainedModel[]>([])
-  const [selectedModel, setSelectedModel] = useState("")
+  const [uploadedModel, setUploadedModel] = useState<File | null>(null)
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [columns, setColumns] = useState<string[]>([])
   const [targetColumn, setTargetColumn] = useState("")
-  const [loadingModels, setLoadingModels] = useState(true)
   const [loadingFile, setLoadingFile] = useState(false)
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<TestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const fetchModels = async () => {
-      try {
-        setLoadingModels(true)
-        const response = await fetch("http://localhost:8000/api/list-files/")
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch trained models")
-        }
-
-        const data = await response.json()
-        const modelList: TrainedModel[] = data.models || []
-        setModels(modelList)
-
-        if (!selectedModel && modelList.length > 0) {
-          setSelectedModel(modelList[0].filename)
-        }
-      } catch (err) {
-        console.error("Error loading models:", err)
-        setError(err instanceof Error ? err.message : "Failed to load trained models")
-      } finally {
-        setLoadingModels(false)
-      }
-    }
-
-    fetchModels()
-  }, [selectedModel])
-
-  const activeModel = useMemo(
-    () => models.find((model) => model.filename === selectedModel) || null,
-    [models, selectedModel]
-  )
-
-  useEffect(() => {
-    if (activeModel?.target_column && columns.includes(activeModel.target_column) && !targetColumn) {
-      setTargetColumn(activeModel.target_column)
-    }
-  }, [activeModel, columns, targetColumn])
 
   const loadFileColumns = async (file: File) => {
     setLoadingFile(true)
@@ -145,14 +86,23 @@ export default function TestModelPage() {
     await loadFileColumns(file)
   }
 
+  const handleModelUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setUploadedModel(file)
+    setResult(null)
+    setError(null)
+  }
+
   const handleTestModel = async () => {
     if (!uploadedFile) {
       setError("Please upload a dataset to test the model")
       return
     }
 
-    if (!selectedModel) {
-      setError("Please select a trained model")
+    if (!uploadedModel) {
+      setError("Please upload a trained model file")
       return
     }
 
@@ -162,7 +112,7 @@ export default function TestModelPage() {
     try {
       const formData = new FormData()
       formData.append("file", uploadedFile)
-      formData.append("model_filename", selectedModel)
+      formData.append("model_file", uploadedModel)
 
       if (targetColumn) {
         formData.append("target_column", targetColumn)
@@ -188,10 +138,6 @@ export default function TestModelPage() {
     }
   }
 
-  const selectedModelDownload = selectedModel
-    ? `http://localhost:8000/api/download-model/${encodeURIComponent(selectedModel)}`
-    : ""
-
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -208,7 +154,7 @@ export default function TestModelPage() {
 
           <h1 className="mb-3 text-4xl font-bold text-foreground">Test Trained Model</h1>
           <p className="max-w-3xl text-lg text-muted-foreground">
-            Pick a downloaded model, upload fresh data, and compare the predictions with your actual target column if
+            Upload a saved model and fresh data, then compare predictions with your actual target column if
             you have one.
           </p>
         </div>
@@ -228,51 +174,36 @@ export default function TestModelPage() {
             <Card className="p-6">
               <div className="mb-4 flex items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-semibold text-foreground">Choose a trained model</h2>
-                  <p className="text-sm text-muted-foreground">Select a model that was trained and saved in the backend.</p>
-                </div>
-                <div className="rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
-                  {models.length} available
+                  <h2 className="text-2xl font-semibold text-foreground">Upload trained model</h2>
+                  <p className="text-sm text-muted-foreground">Choose the .pkl or .joblib model file you downloaded after training.</p>
                 </div>
               </div>
 
-              {loadingModels ? (
-                <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-                  Loading trained models...
-                </div>
-              ) : models.length > 0 ? (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {models.map((model) => {
-                    const isActive = model.filename === selectedModel
-                    return (
-                      <button
-                        key={model.filename}
-                        type="button"
-                        onClick={() => setSelectedModel(model.filename)}
-                        className={`rounded-xl border p-4 text-left transition-all ${
-                          isActive
-                            ? "border-primary bg-primary/5 shadow-sm"
-                            : "border-border bg-card hover:border-primary/50"
-                        }`}
-                      >
-                        <div className="mb-3 flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-2">
-                            <Brain className="h-4 w-4 text-primary" />
-                            <span className="font-medium text-foreground">{model.model_type}</span>
-                          </div>
-                          <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                            {model.task_type}
-                          </span>
-                        </div>
-                        <p className="truncate text-sm text-muted-foreground">{model.filename}</p>
-                        <p className="mt-2 text-xs text-muted-foreground">Target: {model.target_column || "Unknown"}</p>
-                      </button>
-                    )
-                  })}
-                </div>
-              ) : (
-                <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-                  No trained models found yet.
+              <div className="rounded-xl border-2 border-dashed border-border bg-muted/20 p-8 text-center hover:border-primary/50 transition-colors">
+                <input type="file" accept=".pkl,.joblib" className="hidden" id="trained-model-input" onChange={handleModelUpload} disabled={testing} />
+                <label htmlFor="trained-model-input" className="cursor-pointer">
+                  <div className="flex flex-col items-center gap-3">
+                    <Brain className="h-12 w-12 text-muted-foreground" />
+                    <div>
+                      <p className="font-semibold text-foreground">Drop your model here</p>
+                      <p className="text-sm text-muted-foreground">or click to browse for a .pkl or .joblib file</p>
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              {uploadedModel && (
+                <div className="mt-4 rounded-lg border bg-card p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <FileCheck className="h-8 w-8 text-green-500" />
+                      <div>
+                        <p className="font-semibold text-foreground">{uploadedModel.name}</p>
+                        <p className="text-sm text-muted-foreground">{(uploadedModel.size / 1024).toFixed(2)} KB</p>
+                      </div>
+                    </div>
+                    <Button variant="outline" onClick={() => setUploadedModel(null)}>Change Model</Button>
+                  </div>
                 </div>
               )}
             </Card>
@@ -342,17 +273,11 @@ export default function TestModelPage() {
                     <p className="mt-1 text-xs text-muted-foreground">Choose the real label column if you want accuracy metrics.</p>
                   </div>
 
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-foreground">Selected Model</label>
-                    <div className="rounded-md border border-input bg-background px-3 py-2 text-sm text-muted-foreground">
-                      {activeModel ? `${activeModel.model_type} - ${activeModel.task_type}` : "Select a trained model"}
-                    </div>
-                  </div>
                 </div>
               )}
 
               <div className="mt-6 flex flex-wrap gap-3">
-                <Button onClick={handleTestModel} disabled={testing || !uploadedFile || !selectedModel}>
+                <Button onClick={handleTestModel} disabled={testing || !uploadedFile || !uploadedModel}>
                   {testing ? (
                     <>
                       <svg className="mr-3 h-5 w-5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -369,14 +294,6 @@ export default function TestModelPage() {
                   )}
                 </Button>
 
-                {selectedModelDownload && (
-                  <Button variant="outline" asChild>
-                    <a href={selectedModelDownload} target="_blank" rel="noreferrer">
-                      <Download className="mr-2 h-4 w-4" />
-                      Download Selected Model
-                    </a>
-                  </Button>
-                )}
               </div>
             </Card>
 
@@ -465,27 +382,19 @@ export default function TestModelPage() {
                 </div>
               </div>
 
-              {activeModel ? (
+              {uploadedModel ? (
                 <div className="mt-4 space-y-3 text-sm">
                   <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/20 px-3 py-2">
-                    <span className="text-muted-foreground">Model type</span>
-                    <span className="font-medium text-foreground">{activeModel.model_type}</span>
+                    <span className="text-muted-foreground">Uploaded file</span>
+                    <span className="max-w-[12rem] truncate font-medium text-foreground">{uploadedModel.name}</span>
                   </div>
                   <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/20 px-3 py-2">
-                    <span className="text-muted-foreground">Task type</span>
-                    <span className="font-medium text-foreground">{activeModel.task_type}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/20 px-3 py-2">
-                    <span className="text-muted-foreground">Target column</span>
-                    <span className="font-medium text-foreground">{activeModel.target_column || "Unknown"}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/20 px-3 py-2">
-                    <span className="text-muted-foreground">Saved file</span>
-                    <span className="font-medium text-foreground">{activeModel.filename}</span>
+                    <span className="text-muted-foreground">Size</span>
+                    <span className="font-medium text-foreground">{(uploadedModel.size / 1024).toFixed(2)} KB</span>
                   </div>
                 </div>
               ) : (
-                <p className="mt-4 text-sm text-muted-foreground">Select a trained model to see details here.</p>
+                <p className="mt-4 text-sm text-muted-foreground">Upload a model file to see its details here.</p>
               )}
             </Card>
 
@@ -499,7 +408,7 @@ export default function TestModelPage() {
               </div>
 
               <ol className="mt-4 space-y-3 text-sm text-muted-foreground">
-                <li>1. Choose a downloaded model from the list.</li>
+                <li>1. Upload the model file you downloaded after training.</li>
                 <li>2. Upload a CSV or JSON file with the same feature columns.</li>
                 <li>3. Select the actual target column if you want evaluation metrics.</li>
                 <li>4. Run the test and review the prediction preview.</li>
