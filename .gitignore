@@ -175,7 +175,7 @@ tmp/
 *.csv
 *.xlsx
 *.xls
-*.json
+data/**/*.json
 !data/samples/*.csv
 !data/samples/*.xlsx
 !data/samples/*.xls
