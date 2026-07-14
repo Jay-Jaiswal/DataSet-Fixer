@@ -1,0 +1,5 @@
+# Ignore all model files
+*.pkl
+
+# But keep the directory
+!.gitkeep
