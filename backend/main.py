@@ -25,6 +25,7 @@ from sklearn.metrics import (
     accuracy_score, mean_absolute_error, mean_squared_error, precision_score,
     r2_score, recall_score, f1_score, roc_auc_score,
 )
+from ydata_profiling import ProfileReport
 from dotenv import load_dotenv
 
 
@@ -103,13 +104,9 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    try:
-        import ydata_profiling
-        profiling_available = True
-        profiling_version = ydata_profiling.__version__
-    except ImportError:
-        profiling_available = False
-        profiling_version = None
+    import ydata_profiling
+    profiling_available = True
+    profiling_version = ydata_profiling.__version__
     
     return {
         "message": "Data Cleaner API running.",
@@ -144,19 +141,12 @@ async def profiling_status():
     """
     Check if ydata-profiling is available for use.
     """
-    try:
-        import ydata_profiling
-        return {
-            "available": True,
-            "version": ydata_profiling.__version__,
-            "message": "Profiling functionality is available"
-        }
-    except ImportError:
-        return {
-            "available": False,
-            "version": None,
-            "message": "ydata-profiling is not installed. Install with: pip install ydata-profiling"
-        }
+    import ydata_profiling
+    return {
+        "available": True,
+        "version": ydata_profiling.__version__,
+        "message": "Profiling functionality is available"
+    }
 
 
 def generate_data_report(df: pd.DataFrame) -> dict:
@@ -503,27 +493,6 @@ async def profile_report(file: UploadFile = File(...)):
     Returns a downloadable HTML file.
     """
     try:
-        # The dependency must be installed at deploy time. Installing packages during
-        # a request fails on managed hosts such as Render.
-        try:
-            from ydata_profiling import ProfileReport  # package: ydata-profiling
-        except ImportError as exc:
-            return JSONResponse(
-                status_code=503,
-                content={"message": "Profiling is unavailable because ydata-profiling is not installed on the server.", "detail": str(exc)}
-            )
-        except Exception as e:
-            return JSONResponse(
-                status_code=501,
-                content={
-                    "message": (
-                        "Profiling not available: ydata-profiling is not installed or not supported. "
-                        "Please ensure ydata-profiling is installed and compatible with your Python version."
-                    ),
-                    "detail": str(e)
-                }
-            )
-
         content = await file.read()
         df = read_uploaded_dataframe(content, file.filename)
 
@@ -533,7 +502,7 @@ async def profile_report(file: UploadFile = File(...)):
             df = df.sample(n=max_rows, random_state=42)
 
         # Generate profile (minimal to speed up, no progress bar in server logs)
-        profile: ProfileReport = ProfileReport(df, minimal=True, explorative=False, progress_bar=False, pool_size=1)
+        profile = ProfileReport(df, minimal=True, progress_bar=False, pool_size=1)
         html_content = profile.to_html()
         html_bytes = html_content.encode('utf-8')
 
@@ -832,6 +801,12 @@ async def recommend_model(
         if len(df) > 5000:
             df = df.sample(5000, random_state=random_state)
         X, y = df[features].copy(), df[target_column].copy()
+        # A target with many distinct numeric values is continuous. Treat it as a
+        # regression problem even if the user initially selected classification.
+        if task_type == "classification" and pd.api.types.is_numeric_dtype(y):
+            unique_ratio = y.nunique() / len(y)
+            if y.nunique() > 50 or unique_ratio > 0.3:
+                task_type = "regression"
         if task_type == "classification" and y.nunique() < 2:
             raise HTTPException(status_code=422, detail="Classification requires at least two different target values")
         if task_type == "classification" and (y.dtype == "object" or y.dtype.name == "category"):
@@ -876,7 +851,7 @@ async def recommend_model(
             details = "; ".join(f"{name}: {message}" for name, message in failures.items())
             raise HTTPException(status_code=422, detail=f"No compatible algorithms could be evaluated. {details}")
         results.sort(key=lambda item: item["score"], reverse=True)
-        return {"recommended_model": results[0]["model_type"], "score": results[0]["score"], "metric": "accuracy" if task_type == "classification" else "r2_score", "candidates": results}
+        return {"recommended_model": results[0]["model_type"], "score": results[0]["score"], "metric": "accuracy" if task_type == "classification" else "r2_score", "task_type": task_type, "candidates": results}
     except HTTPException:
         raise
     except Exception as exc:

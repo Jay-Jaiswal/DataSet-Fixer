@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 
@@ -10,7 +10,7 @@ interface TrainingFormProps {
     columns: string[]
     loading?: boolean
     recommending?: boolean
-    recommendation?: { recommended_model: string; score: number; metric: string } | null
+    recommendation?: { recommended_model: string; score: number; metric: string; task_type: "classification" | "regression" } | null
 }
 
 const algorithms = {
@@ -33,6 +33,12 @@ export function TrainingForm({ onTrain, onRecommend, columns, loading = false, r
         testSize: 20,
         randomState: 42,
     })
+
+    useEffect(() => {
+        if (recommendation) {
+            setConfig((current) => ({ ...current, taskType: recommendation.task_type, algorithm: recommendation.recommended_model }))
+        }
+    }, [recommendation])
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
@@ -173,7 +179,7 @@ export function TrainingForm({ onTrain, onRecommend, columns, loading = false, r
                     </p>
                 </div>
 
-                {recommendation && <p className="rounded-md bg-primary/10 p-3 text-sm">Recommended: <strong>{recommendation.recommended_model}</strong> ({recommendation.metric === "accuracy" ? "accuracy" : "R²"}: {recommendation.score.toFixed(4)})</p>}
+                {recommendation && <p className="rounded-md bg-primary/10 p-3 text-sm">Recommended: <strong>{recommendation.recommended_model}</strong> for {recommendation.task_type} ({recommendation.metric === "accuracy" ? "accuracy" : "R²"}: {recommendation.score.toFixed(4)})</p>}
                 <Button type="button" variant="outline" className="w-full" disabled={loading || recommending || !config.targetColumn} onClick={() => onRecommend(config)}>
                     {recommending ? "Comparing algorithms..." : "Recommend Best Algorithm"}
                 </Button>

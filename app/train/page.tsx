@@ -19,7 +19,7 @@ export default function TrainPage() {
   const [trainingResults, setTrainingResults] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [recommending, setRecommending] = useState(false)
-  const [recommendation, setRecommendation] = useState<{ recommended_model: string; score: number; metric: string } | null>(null)
+  const [recommendation, setRecommendation] = useState<{ recommended_model: string; score: number; metric: string; task_type: "classification" | "regression" } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
