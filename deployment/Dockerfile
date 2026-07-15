@@ -25,7 +25,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip and install wheel
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN pip install --no-cache-dir --upgrade pip "setuptools<82" wheel
 
 # Copy requirements first (for better Docker layer caching)
 COPY backend/requirements.txt /app/requirements.txt

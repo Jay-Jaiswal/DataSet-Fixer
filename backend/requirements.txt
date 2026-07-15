@@ -18,7 +18,7 @@ requests==2.32.5
 ydata-profiling==4.18.0
 
 # Additional dependencies for ydata-profiling
-setuptools>=65.0.0
+setuptools>=65.0.0,<82.0.0
 wheel>=0.37.0
 
 # For better compatibility

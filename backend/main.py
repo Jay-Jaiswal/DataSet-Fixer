@@ -25,7 +25,14 @@ from sklearn.metrics import (
     accuracy_score, mean_absolute_error, mean_squared_error, precision_score,
     r2_score, recall_score, f1_score, roc_auc_score,
 )
-from ydata_profiling import ProfileReport
+try:
+    from ydata_profiling import ProfileReport
+    profiling_available = True
+except (ImportError, ModuleNotFoundError) as e:
+    ProfileReport = None
+    profiling_available = False
+    print(f"⚠️ ydata-profiling is not available: {e}")
+
 from dotenv import load_dotenv
 
 
@@ -104,9 +111,14 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    import ydata_profiling
-    profiling_available = True
-    profiling_version = ydata_profiling.__version__
+    global profiling_available
+    profiling_version = None
+    if profiling_available:
+        try:
+            import ydata_profiling
+            profiling_version = ydata_profiling.__version__
+        except Exception:
+            profiling_available = False
     
     return {
         "message": "Data Cleaner API running.",
@@ -141,12 +153,28 @@ async def profiling_status():
     """
     Check if ydata-profiling is available for use.
     """
-    import ydata_profiling
-    return {
-        "available": True,
-        "version": ydata_profiling.__version__,
-        "message": "Profiling functionality is available"
-    }
+    global profiling_available
+    if profiling_available:
+        try:
+            import ydata_profiling
+            return {
+                "available": True,
+                "version": ydata_profiling.__version__,
+                "message": "Profiling functionality is available"
+            }
+        except Exception as e:
+            profiling_available = False
+            return {
+                "available": False,
+                "version": None,
+                "message": f"Profiling functionality is unavailable: {str(e)}"
+            }
+    else:
+        return {
+            "available": False,
+            "version": None,
+            "message": "Profiling functionality is unavailable (import failed on startup)"
+        }
 
 
 def generate_data_report(df: pd.DataFrame) -> dict:
@@ -492,6 +520,11 @@ async def profile_report(file: UploadFile = File(...)):
     Generate a ydata-profiling (pandas-profiling) HTML report for the uploaded dataset.
     Returns a downloadable HTML file.
     """
+    if not profiling_available or ProfileReport is None:
+        raise HTTPException(
+            status_code=501,
+            detail="Profiling report generation is disabled on this server because ydata-profiling is not installed or failed to load."
+        )
     try:
         content = await file.read()
         df = read_uploaded_dataframe(content, file.filename)
