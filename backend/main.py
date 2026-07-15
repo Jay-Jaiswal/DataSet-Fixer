@@ -68,15 +68,19 @@ PORT = int(os.environ.get("PORT", 8000))
 HOST = os.environ.get("HOST", "0.0.0.0")
 ENV = os.environ.get("ENV", "development")
 
-# CORS origins for production (Next.js frontend on port 3000)
-CORS_ORIGINS = [
+# CORS origins for local development and the deployed Vercel frontend.
+DEFAULT_CORS_ORIGINS = [
     "http://localhost:3000",
-    "https://your-frontend-domain.com",  # Replace with your actual frontend domain
-    "https://your-frontend-domain.netlify.app",  # If using Netlify
-    "https://your-frontend-domain.vercel.app",  # If using Vercel
+    "http://127.0.0.1:3000",
+    "https://data-set-fixer.vercel.app",
+]
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CORS_ORIGINS", ",".join(DEFAULT_CORS_ORIGINS)).split(",")
+    if origin.strip()
 ]
 
-# Use wildcard only in development
+# Keep local development friction-free; production must use explicit origins.
 if ENV == "development":
     CORS_ORIGINS = ["*"]
 
@@ -92,7 +96,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS, 
     allow_credentials=True, 
-    allow_methods=["GET", "POST"], 
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
