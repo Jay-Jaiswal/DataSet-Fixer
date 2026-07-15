@@ -43,7 +43,8 @@ export default function UploadPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to generate report')
+        const error = await response.json().catch(() => null)
+        throw new Error(error?.message || error?.detail || 'Failed to generate report')
       }
 
       const blob = await response.blob()
@@ -57,7 +58,7 @@ export default function UploadPage() {
       URL.revokeObjectURL(url)
     } catch (error) {
       console.error('Error generating report:', error)
-      alert('Failed to generate profile report. Please ensure the backend is running.')
+      alert(error instanceof Error ? error.message : 'Failed to generate profile report.')
     } finally {
       setGeneratingReport(false)
     }

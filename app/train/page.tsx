@@ -18,6 +18,8 @@ export default function TrainPage() {
   const [showResults, setShowResults] = useState(false)
   const [trainingResults, setTrainingResults] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  const [recommending, setRecommending] = useState(false)
+  const [recommendation, setRecommendation] = useState<{ recommended_model: string; score: number; metric: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -122,11 +124,35 @@ export default function TrainPage() {
     }
   }
 
+  const handleRecommend = async (config: any) => {
+    if (!uploadedFile) return
+    setRecommending(true)
+    setError(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', uploadedFile)
+      formData.append('target_column', config.targetColumn)
+      formData.append('feature_columns', JSON.stringify(columns.filter(col => col !== config.targetColumn)))
+      formData.append('task_type', config.taskType)
+      formData.append('test_size', String(config.testSize / 100))
+      formData.append('random_state', String(config.randomState))
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/recommend-model/`, { method: 'POST', body: formData })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.detail || 'Could not recommend a model')
+      setRecommendation(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not recommend a model')
+    } finally {
+      setRecommending(false)
+    }
+  }
+
   const resetForm = () => {
     setUploadedFile(null)
     setColumns([])
     setShowResults(false)
     setTrainingResults(null)
+    setRecommendation(null)
     setError(null)
   }
 
@@ -225,8 +251,11 @@ export default function TrainPage() {
                   <h2 className="text-2xl font-semibold text-foreground mb-6">Model Configuration</h2>
                   <TrainingForm
                     onTrain={handleTrain}
+                    onRecommend={handleRecommend}
                     columns={columns}
                     loading={loading}
+                    recommending={recommending}
+                    recommendation={recommendation}
                   />
                 </div>
               )}

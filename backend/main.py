@@ -503,29 +503,15 @@ async def profile_report(file: UploadFile = File(...)):
     Returns a downloadable HTML file.
     """
     try:
-        # Lazy import with automatic installation fallback
+        # The dependency must be installed at deploy time. Installing packages during
+        # a request fails on managed hosts such as Render.
         try:
             from ydata_profiling import ProfileReport  # package: ydata-profiling
-        except ImportError:
-            # Attempt to install ydata-profiling automatically
-            import subprocess
-            import sys
-            try:
-                print("ydata-profiling not found. Attempting to install...")
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "ydata-profiling"])
-                from ydata_profiling import ProfileReport
-                print("ydata-profiling installed successfully!")
-            except Exception as install_error:
-                return JSONResponse(
-                    status_code=501,
-                    content={
-                        "message": (
-                            "Profiling not available: ydata-profiling could not be installed automatically. "
-                            "Please install it manually using: pip install ydata-profiling"
-                        ),
-                        "detail": str(install_error)
-                    }
-                )
+        except ImportError as exc:
+            return JSONResponse(
+                status_code=503,
+                content={"message": "Profiling is unavailable because ydata-profiling is not installed on the server.", "detail": str(exc)}
+            )
         except Exception as e:
             return JSONResponse(
                 status_code=501,
@@ -539,34 +525,15 @@ async def profile_report(file: UploadFile = File(...)):
             )
 
         content = await file.read()
-        file_extension = file.filename.split('.')[-1].lower() if file.filename else ''
-
-        # Reuse robust parsing logic
-        if file_extension == 'csv':
-            try:
-                txt = content.decode('utf-8')
-            except Exception:
-                txt = content.decode('latin-1')
-            df = pd.read_csv(StringIO(txt), sep=None, engine='python')
-        elif file_extension == 'json':
-            try:
-                obj = json.loads(content.decode('utf-8'))
-            except Exception:
-                obj = json.loads(content.decode('latin-1'))
-            if isinstance(obj, list):
-                df = pd.DataFrame(obj)
-            else:
-                df = pd.json_normalize(obj)
-        else:
-            return JSONResponse(status_code=400, content={"message": "Unsupported file type"})
+        df = read_uploaded_dataframe(content, file.filename)
 
         # Guard against extremely large datasets: sample up to 10k rows for speed
-        max_rows = 10000
+        max_rows = 5000
         if len(df) > max_rows:
             df = df.sample(n=max_rows, random_state=42)
 
         # Generate profile (minimal to speed up, no progress bar in server logs)
-        profile: ProfileReport = ProfileReport(df, minimal=True, explorative=False)
+        profile: ProfileReport = ProfileReport(df, minimal=True, explorative=False, progress_bar=False, pool_size=1)
         html_content = profile.to_html()
         html_bytes = html_content.encode('utf-8')
 
@@ -828,6 +795,87 @@ async def preview_cleaning(file: UploadFile = File(...),
         return JSONResponse(status_code=400, content={"message": f"Error previewing cleaning: {str(e)}"})
 
 
+@app.post("/api/recommend-model/")
+async def recommend_model(
+    file: UploadFile = File(...),
+    target_column: str = Form(...),
+    feature_columns: str = Form(...),
+    task_type: str = Form(...),
+    test_size: float = Form(0.2),
+    random_state: int = Form(42),
+):
+    """Benchmark supported algorithms on a holdout split and return the best one."""
+    try:
+        from sklearn.model_selection import train_test_split
+        from sklearn.preprocessing import LabelEncoder, StandardScaler
+        from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge, Lasso, ElasticNet
+        from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+        from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, ExtraTreesClassifier, ExtraTreesRegressor, GradientBoostingClassifier, GradientBoostingRegressor, AdaBoostClassifier, AdaBoostRegressor, HistGradientBoostingClassifier, HistGradientBoostingRegressor
+        from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+        from sklearn.svm import SVC
+        import xgboost as xgb
+
+        df = read_uploaded_dataframe(await file.read(), file.filename)
+        features = [column for column in json.loads(feature_columns) if column]
+        if task_type not in {"classification", "regression"}:
+            raise HTTPException(status_code=400, detail="Model recommendation supports classification and regression only")
+        if target_column not in df or not features:
+            raise HTTPException(status_code=400, detail="Choose a target column and at least one feature column")
+        missing = [column for column in features if column not in df]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"Missing feature columns: {', '.join(missing)}")
+
+        # Keep recommendations responsive on deployed free tiers.
+        if len(df) > 5000:
+            df = df.sample(5000, random_state=random_state)
+        X, y = df[features].copy(), df[target_column].copy()
+        if task_type == "classification" and (y.dtype == "object" or y.dtype.name == "category"):
+            y = LabelEncoder().fit_transform(y.astype(str))
+        stratify = y if task_type == "classification" and pd.Series(y).value_counts().min() >= 2 else None
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=stratify)
+
+        numeric = X.select_dtypes(include=["number", "bool"]).columns.tolist()
+        categorical = [column for column in features if column not in numeric]
+        preprocessor = ColumnTransformer([
+            ("num", Pipeline([("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())]), numeric),
+            ("cat", Pipeline([("imputer", SimpleImputer(strategy="most_frequent")), ("encoder", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1))]), categorical),
+        ])
+        if task_type == "classification":
+            candidates = {
+                "LogisticRegression": LogisticRegression(max_iter=1000), "RandomForest": RandomForestClassifier(n_estimators=150, random_state=random_state, n_jobs=-1),
+                "ExtraTrees": ExtraTreesClassifier(n_estimators=150, random_state=random_state, n_jobs=-1), "DecisionTree": DecisionTreeClassifier(random_state=random_state),
+                "GradientBoosting": GradientBoostingClassifier(random_state=random_state), "AdaBoost": AdaBoostClassifier(random_state=random_state),
+                "HistGradientBoosting": HistGradientBoostingClassifier(random_state=random_state), "KNN": KNeighborsClassifier(), "SVM": SVC(),
+                "XGBoost": xgb.XGBClassifier(n_estimators=150, random_state=random_state, n_jobs=1, eval_metric="logloss"),
+            }
+        else:
+            candidates = {
+                "LinearRegression": LinearRegression(), "Ridge": Ridge(), "Lasso": Lasso(), "ElasticNet": ElasticNet(),
+                "RandomForest": RandomForestRegressor(n_estimators=150, random_state=random_state, n_jobs=-1), "ExtraTrees": ExtraTreesRegressor(n_estimators=150, random_state=random_state, n_jobs=-1),
+                "DecisionTree": DecisionTreeRegressor(random_state=random_state), "GradientBoosting": GradientBoostingRegressor(random_state=random_state),
+                "AdaBoost": AdaBoostRegressor(random_state=random_state), "HistGradientBoosting": HistGradientBoostingRegressor(random_state=random_state),
+                "KNN": KNeighborsRegressor(), "XGBoost": xgb.XGBRegressor(n_estimators=150, random_state=random_state, n_jobs=1),
+            }
+
+        results = []
+        for name, estimator in candidates.items():
+            try:
+                pipeline = Pipeline([("preprocessor", preprocessor), ("model", estimator)])
+                pipeline.fit(X_train, y_train)
+                score = pipeline.score(X_test, y_test)
+                results.append({"model_type": name, "score": round(float(score), 4)})
+            except Exception:
+                continue
+        if not results:
+            raise HTTPException(status_code=422, detail="No compatible algorithms could be evaluated for this dataset")
+        results.sort(key=lambda item: item["score"], reverse=True)
+        return {"recommended_model": results[0]["model_type"], "score": results[0]["score"], "metric": "accuracy" if task_type == "classification" else "r2_score", "candidates": results}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Model recommendation failed: {exc}")
+
+
 @app.post("/api/train-model/")
 async def train_model(
     file: UploadFile = File(...),
@@ -862,13 +910,16 @@ async def train_model(
             mean_squared_error, mean_absolute_error, r2_score,
             silhouette_score
         )
-        from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge, Lasso
+        from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge, Lasso, ElasticNet
         from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
         from sklearn.ensemble import (
-            RandomForestClassifier, RandomForestRegressor,
-            GradientBoostingClassifier, GradientBoostingRegressor
+            RandomForestClassifier, RandomForestRegressor, ExtraTreesClassifier,
+            ExtraTreesRegressor, GradientBoostingClassifier, GradientBoostingRegressor,
+            AdaBoostClassifier, AdaBoostRegressor, HistGradientBoostingClassifier,
+            HistGradientBoostingRegressor
         )
         from sklearn.svm import SVC, SVR
+        from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
         from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
         import xgboost as xgb
         import matplotlib
@@ -967,18 +1018,27 @@ async def train_model(
             'classification': {
                 'LogisticRegression': LogisticRegression,
                 'RandomForest': RandomForestClassifier,
+                'ExtraTrees': ExtraTreesClassifier,
                 'DecisionTree': DecisionTreeClassifier,
                 'GradientBoosting': GradientBoostingClassifier,
+                'AdaBoost': AdaBoostClassifier,
+                'HistGradientBoosting': HistGradientBoostingClassifier,
+                'KNN': KNeighborsClassifier,
                 'SVM': SVC,
                 'XGBoost': xgb.XGBClassifier
             },
             'regression': {
                 'LinearRegression': LinearRegression,
                 'RandomForest': RandomForestRegressor,
+                'ExtraTrees': ExtraTreesRegressor,
                 'DecisionTree': DecisionTreeRegressor,
                 'GradientBoosting': GradientBoostingRegressor,
+                'AdaBoost': AdaBoostRegressor,
+                'HistGradientBoosting': HistGradientBoostingRegressor,
+                'KNN': KNeighborsRegressor,
                 'Ridge': Ridge,
                 'Lasso': Lasso,
+                'ElasticNet': ElasticNet,
                 'XGBoost': xgb.XGBRegressor
             },
             'clustering': {

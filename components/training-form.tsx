@@ -6,11 +6,26 @@ import { Card } from "@/components/ui/card"
 
 interface TrainingFormProps {
     onTrain: (config: any) => void
+    onRecommend: (config: any) => void
     columns: string[]
     loading?: boolean
+    recommending?: boolean
+    recommendation?: { recommended_model: string; score: number; metric: string } | null
 }
 
-export function TrainingForm({ onTrain, columns, loading = false }: TrainingFormProps) {
+const algorithms = {
+    classification: [
+        ["RandomForest", "Random Forest"], ["ExtraTrees", "Extra Trees"], ["LogisticRegression", "Logistic Regression"],
+        ["DecisionTree", "Decision Tree"], ["GradientBoosting", "Gradient Boosting"], ["AdaBoost", "AdaBoost"],
+        ["HistGradientBoosting", "Histogram Gradient Boosting"], ["KNN", "K-Nearest Neighbors"], ["SVM", "Support Vector Machine"], ["XGBoost", "XGBoost"],
+    ],
+    regression: [
+        ["RandomForest", "Random Forest"], ["ExtraTrees", "Extra Trees"], ["LinearRegression", "Linear Regression"], ["Ridge", "Ridge"], ["Lasso", "Lasso"], ["ElasticNet", "Elastic Net"],
+        ["DecisionTree", "Decision Tree"], ["GradientBoosting", "Gradient Boosting"], ["AdaBoost", "AdaBoost"], ["HistGradientBoosting", "Histogram Gradient Boosting"], ["KNN", "K-Nearest Neighbors"], ["XGBoost", "XGBoost"],
+    ],
+} as const
+
+export function TrainingForm({ onTrain, onRecommend, columns, loading = false, recommending = false, recommendation = null }: TrainingFormProps) {
     const [config, setConfig] = useState({
         targetColumn: "",
         algorithm: "RandomForest",
@@ -75,7 +90,7 @@ export function TrainingForm({ onTrain, columns, loading = false }: TrainingForm
                                     name="taskType"
                                     value={task.value}
                                     checked={config.taskType === task.value}
-                                    onChange={(e) => setConfig({ ...config, taskType: e.target.value })}
+                                    onChange={(e) => setConfig({ ...config, taskType: e.target.value, algorithm: "RandomForest" })}
                                     className="sr-only"
                                     disabled={loading}
                                 />
@@ -94,17 +109,10 @@ export function TrainingForm({ onTrain, columns, loading = false }: TrainingForm
                         Algorithm
                     </label>
                     <div className="grid grid-cols-2 gap-3">
-                        {[
-                            { value: "RandomForest", label: "Random Forest" },
-                            { value: "LogisticRegression", label: "Logistic Regression" },
-                            { value: "XGBoost", label: "XGBoost" },
-                            { value: "LinearRegression", label: "Linear Regression" },
-                            { value: "GradientBoosting", label: "Gradient Boosting" },
-                            { value: "SVM", label: "Support Vector Machine" },
-                        ].map((algo) => (
+                        {algorithms[config.taskType as keyof typeof algorithms].map(([value, label]) => (
                             <label
-                                key={algo.value}
-                                className={`flex items-center justify-center rounded-lg border-2 p-4 cursor-pointer transition-all ${config.algorithm === algo.value
+                                key={value}
+                                className={`flex items-center justify-center rounded-lg border-2 p-4 cursor-pointer transition-all ${config.algorithm === value
                                     ? "border-primary bg-primary/5"
                                     : "border-border hover:border-primary/50"
                                     }`}
@@ -112,13 +120,13 @@ export function TrainingForm({ onTrain, columns, loading = false }: TrainingForm
                                 <input
                                     type="radio"
                                     name="algorithm"
-                                    value={algo.value}
-                                    checked={config.algorithm === algo.value}
+                                    value={value}
+                                    checked={config.algorithm === value}
                                     onChange={(e) => setConfig({ ...config, algorithm: e.target.value })}
                                     className="sr-only"
                                     disabled={loading}
                                 />
-                                <span className="text-sm font-medium">{algo.label}</span>
+                                <span className="text-sm font-medium">{label}</span>
                             </label>
                         ))}
                     </div>
@@ -165,7 +173,11 @@ export function TrainingForm({ onTrain, columns, loading = false }: TrainingForm
                     </p>
                 </div>
 
-                <Button type="submit" className="w-full" disabled={loading}>
+                {recommendation && <p className="rounded-md bg-primary/10 p-3 text-sm">Recommended: <strong>{recommendation.recommended_model}</strong> ({recommendation.metric === "accuracy" ? "accuracy" : "R²"}: {recommendation.score.toFixed(4)})</p>}
+                <Button type="button" variant="outline" className="w-full" disabled={loading || recommending || !config.targetColumn} onClick={() => onRecommend(config)}>
+                    {recommending ? "Comparing algorithms..." : "Recommend Best Algorithm"}
+                </Button>
+                <Button type="submit" className="w-full" disabled={loading || recommending}>
                     {loading ? (
                         <>
                             <svg className="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
