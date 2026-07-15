@@ -826,9 +826,14 @@ async def recommend_model(
             raise HTTPException(status_code=400, detail=f"Missing feature columns: {', '.join(missing)}")
 
         # Keep recommendations responsive on deployed free tiers.
+        df = df.dropna(subset=[target_column])
+        if len(df) < 10:
+            raise HTTPException(status_code=422, detail="At least 10 rows with a target value are required to compare algorithms")
         if len(df) > 5000:
             df = df.sample(5000, random_state=random_state)
         X, y = df[features].copy(), df[target_column].copy()
+        if task_type == "classification" and y.nunique() < 2:
+            raise HTTPException(status_code=422, detail="Classification requires at least two different target values")
         if task_type == "classification" and (y.dtype == "object" or y.dtype.name == "category"):
             y = LabelEncoder().fit_transform(y.astype(str))
         stratify = y if task_type == "classification" and pd.Series(y).value_counts().min() >= 2 else None
@@ -858,16 +863,18 @@ async def recommend_model(
             }
 
         results = []
+        failures = {}
         for name, estimator in candidates.items():
             try:
                 pipeline = Pipeline([("preprocessor", preprocessor), ("model", estimator)])
                 pipeline.fit(X_train, y_train)
                 score = pipeline.score(X_test, y_test)
                 results.append({"model_type": name, "score": round(float(score), 4)})
-            except Exception:
-                continue
+            except Exception as exc:
+                failures[name] = str(exc)
         if not results:
-            raise HTTPException(status_code=422, detail="No compatible algorithms could be evaluated for this dataset")
+            details = "; ".join(f"{name}: {message}" for name, message in failures.items())
+            raise HTTPException(status_code=422, detail=f"No compatible algorithms could be evaluated. {details}")
         results.sort(key=lambda item: item["score"], reverse=True)
         return {"recommended_model": results[0]["model_type"], "score": results[0]["score"], "metric": "accuracy" if task_type == "classification" else "r2_score", "candidates": results}
     except HTTPException:
