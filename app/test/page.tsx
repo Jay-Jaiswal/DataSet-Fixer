@@ -118,7 +118,7 @@ export default function TestModelPage() {
         formData.append("target_column", targetColumn)
       }
 
-      const response = await fetch("http://localhost:8000/api/test-model/", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/test-model/`, {
         method: "POST",
         body: formData,
       })

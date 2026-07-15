@@ -37,7 +37,7 @@ export default function UploadPage() {
       const formData = new FormData()
       formData.append('file', localFile)
 
-      const response = await fetch('http://localhost:8000/api/profile-report/', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/profile-report/`, {
         method: 'POST',
         body: formData,
       })

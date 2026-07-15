@@ -13,7 +13,7 @@ export function ModelResults({ isVisible, results }: ModelResultsProps) {
     if (!isVisible || !results) return null
 
     const handleDownload = () => {
-        const downloadUrl = `http://localhost:8000${results.model_download_url}`
+        const downloadUrl = `${process.env.NEXT_PUBLIC_API_URL}${results.model_download_url}`
         window.open(downloadUrl, '_blank')
     }
 

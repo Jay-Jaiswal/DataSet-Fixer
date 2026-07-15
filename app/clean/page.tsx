@@ -78,7 +78,7 @@ export default function CleanPage() {
       const formData = new FormData()
       formData.append('file', file)
 
-      const response = await fetch('http://localhost:8000/api/upload-and-analyze/', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/upload-and-analyze/`, {
         method: 'POST',
         body: formData,
       })
@@ -133,7 +133,7 @@ export default function CleanPage() {
       formData.append('missing_threshold', '0.8')
       formData.append('fill_strategy', 'auto')
 
-      const response = await fetch('http://localhost:8000/api/clean-file/', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/clean-file/`, {
         method: 'POST',
         body: formData,
       })
@@ -185,7 +185,7 @@ export default function CleanPage() {
       const formData = new FormData()
       formData.append('file', fileToProfile)
 
-      const response = await fetch('http://localhost:8000/api/profile-report/', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/profile-report/`, {
         method: 'POST',
         body: formData,
       })
